@@ -272,6 +272,146 @@
     opacity: 1;
 }
 
+.xp_expr_open {
+    border-color: var(--SmartThemeQuoteColor, #4ea1ff);
+    background-color: #4ea1ff18;
+}
+
+.xp_expr_mixed {
+    font-size: 0.7em;
+    opacity: 0.6;
+    flex-shrink: 0;
+    padding: 0.15rem;
+    color: var(--SmartThemeQuoteColor, #4ea1ff);
+}
+
+/* ── Expanded per-image panel ─────────────────────────────────── */
+
+.xp_expr_detail {
+    flex-basis: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.4rem 0.5rem;
+    border: 1px solid var(--SmartThemeQuoteColor, #4ea1ff);
+    border-radius: 8px;
+    background-color: #00000020;
+}
+
+.xp_img_item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0.3rem;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 120ms ease;
+}
+
+.xp_img_item:hover {
+    background-color: #51515160;
+}
+
+.xp_img_thumb {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: 5px;
+    flex-shrink: 0;
+    background-color: #00000030;
+}
+
+.xp_img_meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    line-height: 1.25;
+}
+
+.xp_img_title {
+    font-size: 0.85em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xp_img_tag {
+    font-size: 0.7em;
+    opacity: 0.75;
+    font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xp_img_tag_inherited {
+    opacity: 0.4;
+}
+
+.xp_img_tag_btn,
+.xp_img_del {
+    opacity: 0.35;
+    padding: 0.2rem;
+    flex-shrink: 0;
+    transition: opacity 120ms ease, color 120ms ease;
+}
+
+.xp_img_tag_btn.xp_tagged {
+    opacity: 0.85;
+    color: var(--SmartThemeQuoteColor, #4ea1ff);
+}
+
+.xp_img_item:hover .xp_img_tag_btn,
+.xp_img_item:hover .xp_img_del {
+    opacity: 0.85;
+}
+
+.xp_img_tag_btn:hover {
+    color: var(--SmartThemeQuoteColor, #4ea1ff);
+    opacity: 1;
+}
+
+.xp_img_del:hover {
+    color: #ff6b6b;
+    opacity: 1;
+}
+
+/* ── Tag history chips (inside popups) ────────────────────────── */
+
+.xp_tag_history_wrap {
+    margin-top: 0.5rem;
+    text-align: left;
+}
+
+.xp_tag_history {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    margin-top: 0.25rem;
+}
+
+.xp_tag_chip {
+    padding: 0.15rem 0.55rem;
+    border: 1px solid var(--SmartThemeQuoteColor, #4ea1ff);
+    border-radius: 999px;
+    font-size: 0.8em;
+    cursor: pointer;
+    opacity: 0.8;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: opacity 120ms ease, background-color 120ms ease;
+}
+
+.xp_tag_chip:hover,
+.xp_tag_chip:focus {
+    opacity: 1;
+    background-color: #4ea1ff30;
+}
+
 .xp_expr_del:hover {
     color: #ff6b6b;
     opacity: 1;

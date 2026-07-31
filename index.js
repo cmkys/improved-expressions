@@ -1,22 +1,28 @@
 /**
  * Expressions Plus — multi-character, per-card sprite automation for SillyTavern.
  *
- * Data model: Card → Story Character → Expressions.
+ * Data model: Card → Story Character → Expressions → Images.
  *
  * An expression's images can come from two sources, freely combined:
  *  1. Suffix-named files in the character folder:
  *     casual.png, casual-1.png, casual.beach.png → "casual"
  *  2. A registered expression subfolder: <char>/casual/ — every image inside
  *     counts as "casual", whatever it's named.
- * SillyTavern's sprites API cannot enumerate subfolders, so expression folders
- * are registered per character. Registration is automatic when you drag & drop
- * an actual folder onto a character block; folders created on disk are added
- * with the "add expression folder" button, then picked up by Scan.
+ * Dropped OS folders are uploaded & registered automatically; folders created
+ * on disk are registered once with the folder-plus button, then Scan picks up
+ * changes. (The sprites API can't enumerate subfolders on its own.)
  *
- * Expressions can carry a tag — a short description of the setting/outfit/mood
- * they depict. Tags are appended to the option list sent to the classifier
- * ("Alice/casual — school cafeteria, lunch") to make selection more accurate,
- * but the model is told to answer with only the Character/expression part.
+ * Tags: an expression can carry a tag (setting/outfit/mood description), and
+ * each individual image can carry its own tag that overrides it. Images are
+ * grouped by effective tag when building the option list for the classifier;
+ * groups with different tags become separate variants ("Alice/casual",
+ * "Alice/casual.2 — beach"), so the tag steers WHICH image pool is used.
+ * The last 5 tags entered this session are offered as one-click chips in the
+ * tag popup.
+ *
+ * Upload processing strips the character's name from filenames to avoid
+ * redundant labels: for a character named "Bob Stinger", bob_happy.png →
+ * "happy".
  *
  * Classification is event-driven (no polling), goes through a separate
  * OpenAI-compatible endpoint (never the main chat API), and expressions
@@ -67,7 +73,7 @@ const DEFAULT_PROMPT = [
  * @typedef {object} ExpressionEntry
  * @property {string} label
  * @property {SpriteImage[]} files
- * @property {string} [tag] - user-set setting/outfit/mood description
+ * @property {string} [tag] - expression-level setting/outfit/mood description
  * @property {boolean} [fromFolder=false] - true when any image comes from a subfolder
  * @property {string} [subfolder] - registered subfolder name backing this expression, if any
  */
@@ -78,6 +84,7 @@ const DEFAULT_PROMPT = [
  * @property {string} folder - sprite folder relative to /characters/
  * @property {string[]} subfolders - registered expression subfolder names
  * @property {{[label: string]: string}} tags - per-expression descriptions
+ * @property {{[key: string]: string}} imageTags - per-image descriptions, keyed "label::title"
  */
 
 /** In-memory cache: folder path → raw server-grouped entries */
@@ -88,6 +95,10 @@ let inApiCall = false;
 let lastClassifiedText = null;
 /** Currently displayed sprite (for reroll-if-same) */
 let currentSprite = { char: null, label: null, src: null };
+/** Session-only history of the last 5 tags entered (newest first) */
+let sessionTagHistory = [];
+/** Which expression panels are expanded, keyed "folder::label" */
+let expandedExpressions = new Set();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Settings
@@ -111,6 +122,7 @@ function getSettings() {
     def('onSwipe', true);
     def('historyDepth', 4);
     def('rerollIfSame', true);
+    def('stripCharName', true);
     def('prompt', DEFAULT_PROMPT);
     def('apiUrl', '');
     def('apiKey', '');
@@ -168,6 +180,7 @@ function getCardData(create = false) {
     for (const ch of card.characters) {
         if (!Array.isArray(ch.subfolders)) ch.subfolders = [];
         if (!ch.tags || typeof ch.tags !== 'object') ch.tags = {};
+        if (!ch.imageTags || typeof ch.imageTags !== 'object') ch.imageTags = {};
     }
     return card;
 }
@@ -202,6 +215,39 @@ function escapeHtml(str) {
 
 function subfolderPath(ch, sub) {
     return `${ch.folder}/${sub}`;
+}
+
+function imageTagKey(label, title) {
+    return `${label}::${title}`;
+}
+
+/** Effective tag of one image: its own tag, falling back to the expression tag. */
+function effectiveImageTag(ch, label, file, expressionTag) {
+    return ch.imageTags[imageTagKey(label, file.title)] || expressionTag || '';
+}
+
+/**
+ * Removes references to the character's name from a filename-derived string
+ * to prevent redundant labels: for "Bob Stinger", "bob_happy" → "happy",
+ * "stinger-angry" → "angry". Works segment-wise so partial words are safe
+ * ("bobble" is untouched). Never returns an empty result — if stripping
+ * would delete everything (file literally named "bob.png"), the original
+ * is kept.
+ * @param {string} raw
+ * @param {string} charName
+ * @returns {string}
+ */
+function stripCharacterName(raw, charName) {
+    const tokens = String(charName || '')
+        .toLowerCase()
+        .split(/[\s_\-.]+/)
+        .filter(t => t.length >= 2);
+    if (tokens.length === 0) return raw;
+
+    const segments = String(raw).split(/[\s_\-.]+/).filter(Boolean);
+    const kept = segments.filter(seg => !tokens.includes(seg.toLowerCase()));
+    if (kept.length === 0) return raw; // don't produce an empty name
+    return kept.join('_');
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -317,10 +363,15 @@ function getCharacterExpressions(ch) {
 }
 
 /**
- * All selectable options for the current card: only expressions that actually
- * have at least one image. This is what keeps empty expressions from ever
- * reaching (and erroring) the classifier.
- * @returns {{char: string, label: string, tag: string, files: SpriteImage[]}[]}
+ * All selectable options for the current card, only from expressions that
+ * have images (empty ones can never reach the classifier).
+ *
+ * Within an expression, images are grouped by their effective tag
+ * (image tag → falls back to expression tag). One tag → one option with all
+ * images. Multiple distinct tags → one option per group, keyed as variants:
+ * "Alice/casual", "Alice/casual.2", "Alice/casual.3" — so the classifier's
+ * choice of tag decides which image pool gets used.
+ * @returns {{char: string, key: string, label: string, tag: string, files: SpriteImage[]}[]}
  */
 function getOptions() {
     const card = getCardData();
@@ -328,9 +379,34 @@ function getOptions() {
     const options = [];
     for (const ch of card.characters) {
         for (const entry of getCharacterExpressions(ch)) {
-            if (entry.files.length > 0) {
-                options.push({ char: ch.name, label: entry.label, tag: entry.tag || '', files: entry.files });
+            if (entry.files.length === 0) continue;
+
+            /** @type {Map<string, SpriteImage[]>} */
+            const byTag = new Map();
+            for (const file of entry.files) {
+                const tag = effectiveImageTag(ch, entry.label, file, entry.tag);
+                if (!byTag.has(tag)) byTag.set(tag, []);
+                byTag.get(tag).push(file);
             }
+
+            if (byTag.size <= 1) {
+                const tag = byTag.keys().next().value || '';
+                options.push({ char: ch.name, key: entry.label, label: entry.label, tag, files: entry.files });
+                continue;
+            }
+
+            // Base group (matching the expression-level tag, or untagged) keeps
+            // the plain key; the rest become .2, .3, ... in stable order.
+            const baseTag = entry.tag || '';
+            const groups = [...byTag.entries()].sort((a, b) => {
+                if (a[0] === baseTag) return -1;
+                if (b[0] === baseTag) return 1;
+                return a[0].localeCompare(b[0]);
+            });
+            groups.forEach(([tag, files], index) => {
+                const key = index === 0 ? entry.label : `${entry.label}.${index + 1}`;
+                options.push({ char: ch.name, key, label: entry.label, tag, files });
+            });
         }
     }
     return options;
@@ -387,33 +463,40 @@ async function deleteSpriteFile(folder, label, spriteName) {
 
 /**
  * Derives the expression label from a file name, mirroring the server's
- * suffix convention: everything after the first dot, or a trailing -N
- * numeric suffix, is treated as a variant marker.
+ * suffix convention, and optionally stripping the character's name to
+ * prevent redundancy ("bob_happy.png" for Bob Stinger → "happy").
  * "casual-1.png" → casual · "casual.beach.png" → casual
  * @param {string} fileName
+ * @param {string} [charName] - character name to strip from the label
  * @returns {{label: string, spriteName: string}}
  */
-function labelFromFileName(fileName) {
+function labelFromFileName(fileName, charName = '') {
+    const s = getSettings();
+    const strip = (str) => (s.stripCharName && charName ? stripCharacterName(str, charName) : str);
+
     const base = withoutExtension(fileName);
     let label = base.split('.')[0];
     const dashNum = /^(.+)-(\d+)$/.exec(label);
     if (dashNum) label = dashNum[1];
-    label = sanitizeLabel(label);
-    const spriteName = sanitizeLabel(base.replace(/\./g, '_')) || label;
+    label = sanitizeLabel(strip(label));
+
+    let spriteName = sanitizeLabel(strip(base.replace(/\./g, '_'))) || label;
     return { label, spriteName };
 }
 
 /**
- * Bulk uploads loose image files into a folder, labels derived from filenames.
+ * Bulk uploads loose image files into a folder, labels derived from filenames
+ * (character name stripped).
+ * @param {StoryCharacter} ch
  * @param {string} folder
  * @param {File[]} files
  * @returns {Promise<{uploaded: number, failed: number}>}
  */
-async function bulkUpload(folder, files) {
+async function bulkUpload(ch, folder, files) {
     const list = Array.from(files || []).filter(f => f && f.type?.startsWith('image/'));
     let uploaded = 0, failed = 0;
     for (const file of list) {
-        const { label, spriteName } = labelFromFileName(file.name);
+        const { label, spriteName } = labelFromFileName(file.name, ch.name);
         if (!label) { failed++; continue; }
         const res = await uploadSpriteFile(folder, file, label, spriteName);
         res.ok ? uploaded++ : failed++;
@@ -424,13 +507,14 @@ async function bulkUpload(folder, files) {
 
 /**
  * Uploads a batch of images into an expression subfolder — every file counts
- * as that one expression, filenames only need to be unique.
+ * as that one expression; filenames (name-stripped) only need to be unique.
  * @param {StoryCharacter} ch
  * @param {string} subName - subfolder name (already sanitized)
  * @param {File[]} files
  * @returns {Promise<{uploaded: number, failed: number}>}
  */
 async function uploadIntoSubfolder(ch, subName, files) {
+    const s = getSettings();
     const folder = subfolderPath(ch, subName);
     const label = sanitizeLabel(subName) || 'expression';
     const usedNames = new Set(
@@ -439,7 +523,9 @@ async function uploadIntoSubfolder(ch, subName, files) {
     let uploaded = 0, failed = 0, index = 0;
     for (const file of Array.from(files || [])) {
         if (!file?.type?.startsWith('image/')) { failed++; continue; }
-        let spriteName = sanitizeLabel(withoutExtension(file.name).replace(/\./g, '_')) || label;
+        let base = withoutExtension(file.name).replace(/\./g, '_');
+        if (s.stripCharName) base = stripCharacterName(base, ch.name);
+        let spriteName = sanitizeLabel(base) || label;
         while (usedNames.has(spriteName)) {
             spriteName = `${label}_${++index}`;
         }
@@ -455,12 +541,15 @@ async function uploadIntoSubfolder(ch, subName, files) {
  * Renames an expression by re-uploading every image under the new label into
  * the character's MAIN folder (suffix convention) and deleting the originals.
  * Consolidates subfolder-based expressions in the process; the old (now empty)
- * subfolder is unregistered. SillyTavern has no rename/move endpoint.
+ * subfolder is unregistered. Expression and per-image tags are migrated.
+ * SillyTavern has no rename/move endpoint.
  * @param {StoryCharacter} ch
  * @param {ExpressionEntry} entry
  * @param {string} newLabel
  */
 async function renameExpression(ch, entry, newLabel) {
+    /** @type {{oldTitle: string, newTitle: string}[]} */
+    const titleMap = [];
     let index = 0;
     for (const file of entry.files) {
         const response = await fetch(file.imageSrc, { cache: 'no-cache' });
@@ -471,19 +560,27 @@ async function renameExpression(ch, entry, newLabel) {
         const newFile = new File([blob], `${spriteName}.${ext}`, { type: blob.type || 'image/png' });
         const res = await uploadSpriteFile(ch.folder, newFile, newLabel, spriteName);
         if (!res.ok) throw new Error(res.error || 'upload failed');
+        titleMap.push({ oldTitle: file.title, newTitle: spriteName });
         index++;
     }
     for (const file of entry.files) {
         await deleteSpriteFile(file.srcFolder, file.srcLabel, withoutExtension(file.fileName));
     }
     if (entry.subfolder) {
-        ch.subfolders = ch.subfolders.filter(s => s !== entry.subfolder);
+        ch.subfolders = ch.subfolders.filter(sub => sub !== entry.subfolder);
         delete folderCache[subfolderPath(ch, entry.subfolder)];
     }
-    // Migrate the tag to the new label
+    // Migrate the expression tag and per-image tags to the new label/titles
     if (ch.tags[entry.label]) {
         ch.tags[newLabel] = ch.tags[entry.label];
         delete ch.tags[entry.label];
+    }
+    for (const { oldTitle, newTitle } of titleMap) {
+        const oldKey = imageTagKey(entry.label, oldTitle);
+        if (ch.imageTags[oldKey]) {
+            ch.imageTags[imageTagKey(newLabel, newTitle)] = ch.imageTags[oldKey];
+            delete ch.imageTags[oldKey];
+        }
     }
     saveSettingsDebounced();
 }
@@ -590,29 +687,29 @@ function parseResponse(raw, options) {
     // If the model echoed a tag, cut everything after the separator.
     clean = clean.split('—')[0].split(' - ')[0].trim();
 
-    const keyed = options.map(o => ({ o, key: `${o.char}/${o.label}`.toLowerCase() }));
+    const keyed = options.map(o => ({ o, key: `${o.char}/${o.key}`.toLowerCase() }));
 
     // 1. Exact match
     const exact = keyed.find(k => k.key === clean);
     if (exact) return exact.o;
 
     // 2. Reply contains a full "Character/expression" key (longest first,
-    //    so "alice/casual_beach" wins over "alice/casual")
+    //    so "alice/casual.2" wins over "alice/casual")
     keyed.sort((a, b) => b.key.length - a.key.length);
     const contained = keyed.find(k => clean.includes(k.key));
     if (contained) return contained.o;
 
-    // 3. Character name and expression label both mentioned somewhere
+    // 3. Character name and option key both mentioned somewhere
     for (const k of keyed) {
-        if (clean.includes(k.o.char.toLowerCase()) && clean.includes(k.o.label.toLowerCase())) {
+        if (clean.includes(k.o.char.toLowerCase()) && clean.includes(k.o.key.toLowerCase())) {
             return k.o;
         }
     }
 
-    // 4. Expression label alone (longest first to avoid substring collisions)
-    const byLabel = [...options].sort((a, b) => b.label.length - a.label.length);
-    const labelOnly = byLabel.find(o => clean.includes(o.label.toLowerCase()));
-    if (labelOnly) return labelOnly;
+    // 4. Option key alone (longest first to avoid substring collisions)
+    const byKey = [...options].sort((a, b) => b.key.length - a.key.length);
+    const keyOnly = byKey.find(o => clean.includes(o.key.toLowerCase()));
+    if (keyOnly) return keyOnly;
 
     return null;
 }
@@ -648,7 +745,7 @@ async function classify(force = false) {
     if (!force && userPrompt === lastClassifiedText) return;
 
     const labels = options
-        .map(o => `${o.char}/${o.label}${o.tag ? ` — ${o.tag}` : ''}`)
+        .map(o => `${o.char}/${o.key}${o.tag ? ` — ${o.tag}` : ''}`)
         .join('\n');
     const systemPrompt = String(s.prompt || DEFAULT_PROMPT).replaceAll('{{labels}}', labels);
 
@@ -665,7 +762,7 @@ async function classify(force = false) {
 
         const option = parseResponse(raw, options);
         if (option) {
-            console.debug(`[expressions-plus] Picked ${option.char}/${option.label} from reply:`, raw.trim().slice(0, 120));
+            console.debug(`[expressions-plus] Picked ${option.char}/${option.key} from reply:`, raw.trim().slice(0, 120));
             showSprite(option);
         } else {
             console.warn('[expressions-plus] Could not match classifier reply to any option:', raw);
@@ -733,6 +830,52 @@ function hideSprite() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Tag popup with session history
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Records a tag in the session history (newest first, deduped, max 5). */
+function recordTag(tag) {
+    if (!tag) return;
+    sessionTagHistory = [tag, ...sessionTagHistory.filter(t => t !== tag)].slice(0, 5);
+}
+
+/**
+ * Shows the tag input popup with clickable chips for recent tags.
+ * @param {string} title - popup header
+ * @param {string} description - HTML description
+ * @param {string} current - current tag value
+ * @returns {Promise<string|null>} trimmed tag ('' clears), or null when cancelled
+ */
+async function showTagPopup(title, description, current) {
+    const history = sessionTagHistory.length
+        ? `<div class="xp_tag_history_wrap"><small>Recent tags (click to use):</small><div class="xp_tag_history">${
+            sessionTagHistory.map(t => `<div class="xp_tag_chip interactable" data-tag="${escapeHtml(t)}" tabindex="0">${escapeHtml(t)}</div>`).join('')
+        }</div></div>`
+        : '';
+    const input = await Popup.show.input(title, `${description}${history}`, current || '');
+    if (input === null || input === undefined) return null;
+    return String(input).trim().replace(/\s+/g, ' ').slice(0, 200);
+}
+
+/** Delegated handler: clicking a history chip fills the popup's input. */
+function bindTagChipDelegate() {
+    $(document).on('click keydown', '.xp_tag_chip', function (e) {
+        if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        const dlg = this.closest('dialog') || this.closest('.popup');
+        if (!dlg) return;
+        const input = dlg.querySelector('.popup-input')
+            || dlg.querySelector('textarea')
+            || dlg.querySelector('input[type="text"], input:not([type])');
+        if (input) {
+            input.value = $(this).data('tag');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.focus();
+        }
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Management UI (tree)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -774,7 +917,7 @@ function buildCharacterBlock(cardKey, card, ch) {
                 <i class="fa-solid fa-user"></i>
                 <b class="xp_char_name">${escapeHtml(ch.name)}</b>
                 <div class="xp_char_actions">
-                    <div class="menu_button xp_btn interactable" data-act="add" title="Add images (each filename becomes an expression; suffixes like -1 group as variants)"><i class="fa-solid fa-file-circle-plus"></i></div>
+                    <div class="menu_button xp_btn interactable" data-act="add" title="Add images (each filename becomes an expression; suffixes like -1 group as variants; the character's name is stripped from filenames)"><i class="fa-solid fa-file-circle-plus"></i></div>
                     <div class="menu_button xp_btn interactable" data-act="addfolder" title="Register an expression folder — every image inside <char>/<name>/ counts as that expression"><i class="fa-solid fa-folder-plus"></i></div>
                     <div class="menu_button xp_btn interactable" data-act="rename" title="Rename character"><i class="fa-solid fa-pencil"></i></div>
                     <div class="menu_button xp_btn interactable" data-act="remove" title="Remove character from this card (image files stay on disk)"><i class="fa-solid fa-xmark"></i></div>
@@ -794,7 +937,11 @@ function buildCharacterBlock(cardKey, card, ch) {
         $grid.append('<div class="xp_hint">No expressions. Add images or folders, or fill the folder on disk and Scan.</div>');
     }
     for (const entry of expressions) {
-        $grid.append(buildExpressionChip(ch, entry));
+        const expandKey = `${ch.folder}::${entry.label}`;
+        $grid.append(buildExpressionChip(ch, entry, expandKey));
+        if (expandedExpressions.has(expandKey) && entry.files.length > 0) {
+            $grid.append(buildExpressionDetail(ch, entry));
+        }
     }
 
     // Header actions
@@ -847,31 +994,39 @@ function buildCharacterBlock(cardKey, card, ch) {
 }
 
 /**
+ * The compact chip for one expression. Clicking it toggles the expanded
+ * per-image panel; buttons handle tag/rename/delete at the expression level.
  * @param {StoryCharacter} ch
  * @param {ExpressionEntry} entry
+ * @param {string} expandKey
  */
-function buildExpressionChip(ch, entry) {
+function buildExpressionChip(ch, entry, expandKey) {
     const thumb = entry.files[0]?.imageSrc || '';
     const hasImages = entry.files.length > 0;
+    const expanded = expandedExpressions.has(expandKey);
+    const mixedTags = hasImages && entry.files.some(f => ch.imageTags[imageTagKey(entry.label, f.title)]);
     const $chip = $(`
-        <div class="xp_expr interactable ${hasImages ? '' : 'xp_expr_empty'}" title="${hasImages ? 'Click to display this expression' : 'Registered folder with no images yet — not sent to the AI'}">
+        <div class="xp_expr interactable ${hasImages ? '' : 'xp_expr_empty'} ${expanded ? 'xp_expr_open' : ''}" title="${hasImages ? 'Click to expand images; click again to collapse' : 'Registered folder with no images yet — not sent to the AI'}">
             ${hasImages ? `<img class="xp_expr_thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy" />` : '<div class="xp_expr_thumb xp_expr_thumb_empty"><i class="fa-solid fa-image"></i></div>'}
             <div class="xp_expr_text">
                 <span class="xp_expr_label">${escapeHtml(entry.label)}</span>
                 ${entry.tag ? `<small class="xp_expr_tag_text" title="${escapeHtml(entry.tag)}">${escapeHtml(entry.tag)}</small>` : ''}
             </div>
             ${entry.files.length > 1 ? `<span class="xp_expr_count">×${entry.files.length}</span>` : ''}
+            ${mixedTags ? '<i class="xp_expr_mixed fa-solid fa-layer-group" title="Some images have their own tags — they are offered to the AI as separate variants"></i>' : ''}
             ${entry.fromFolder ? '<i class="xp_expr_folder fa-solid fa-folder" title="Backed by an expression folder — click to unregister it (keeps the files on disk)"></i>' : ''}
-            <i class="xp_expr_tag_btn fa-solid fa-tag ${entry.tag ? 'xp_tagged' : ''}" title="${entry.tag ? 'Edit tag: ' + escapeHtml(entry.tag) : 'Add a tag describing the setting/outfit/mood — sent to the classifier for accuracy'}"></i>
+            <i class="xp_expr_tag_btn fa-solid fa-tag ${entry.tag ? 'xp_tagged' : ''}" title="${entry.tag ? 'Edit tag: ' + escapeHtml(entry.tag) : 'Tag this expression with its setting/outfit/mood — sent to the classifier for accuracy'}"></i>
             <i class="xp_expr_edit fa-solid fa-pencil" title="Rename expression (renames/moves the files)"></i>
             <i class="xp_expr_del fa-solid fa-xmark" title="Delete expression and its image files"></i>
         </div>
     `);
 
-    $chip.on('click', (e) => {
+    $chip.on('click', async (e) => {
         if ($(e.target).is('.xp_expr_edit, .xp_expr_del, .xp_expr_tag_btn, .xp_expr_folder')) return;
         if (!hasImages) return;
-        showSprite({ char: ch.name, label: entry.label, files: entry.files });
+        if (expandedExpressions.has(expandKey)) expandedExpressions.delete(expandKey);
+        else expandedExpressions.add(expandKey);
+        await renderTree();
     });
     $chip.find('.xp_expr_tag_btn').on('click', async (e) => {
         e.stopPropagation();
@@ -893,6 +1048,52 @@ function buildExpressionChip(ch, entry) {
     return $chip;
 }
 
+/**
+ * The expanded panel listing every image of an expression, with per-image
+ * tag / display / delete controls.
+ * @param {StoryCharacter} ch
+ * @param {ExpressionEntry} entry
+ */
+function buildExpressionDetail(ch, entry) {
+    const $detail = $('<div class="xp_expr_detail"></div>');
+    for (const file of entry.files) {
+        const ownTag = ch.imageTags[imageTagKey(entry.label, file.title)] || '';
+        const inherited = !ownTag && entry.tag ? entry.tag : '';
+        const $item = $(`
+            <div class="xp_img_item interactable" title="Click to display this exact image">
+                <img class="xp_img_thumb" src="${escapeHtml(file.imageSrc)}" alt="" loading="lazy" />
+                <div class="xp_img_meta">
+                    <span class="xp_img_title">${escapeHtml(file.title)}</span>
+                    ${ownTag ? `<small class="xp_img_tag" title="${escapeHtml(ownTag)}">${escapeHtml(ownTag)}</small>` : ''}
+                    ${inherited ? `<small class="xp_img_tag xp_img_tag_inherited" title="Inherited from the expression tag">${escapeHtml(inherited)}</small>` : ''}
+                </div>
+                <i class="xp_img_tag_btn fa-solid fa-tag ${ownTag ? 'xp_tagged' : ''}" title="${ownTag ? 'Edit this image\'s own tag' : 'Give this image its own tag (overrides the expression tag; images with different tags become separate options for the AI)'}"></i>
+                <i class="xp_img_del fa-solid fa-xmark" title="Delete this image file"></i>
+            </div>
+        `);
+        $item.on('click', (e) => {
+            if ($(e.target).is('.xp_img_tag_btn, .xp_img_del')) return;
+            showSprite({ char: ch.name, label: entry.label, files: [file] });
+        });
+        $item.find('.xp_img_tag_btn').on('click', async (e) => {
+            e.stopPropagation();
+            await onTagImage(ch, entry, file);
+        });
+        $item.find('.xp_img_del').on('click', async (e) => {
+            e.stopPropagation();
+            const ok = await Popup.show.confirm('Delete image', `Delete <tt>${escapeHtml(file.fileName)}</tt> from <b>${escapeHtml(entry.label)}</b>? This removes the file from disk.`);
+            if (!ok) return;
+            await deleteSpriteFile(file.srcFolder, file.srcLabel, withoutExtension(file.fileName));
+            delete ch.imageTags[imageTagKey(entry.label, file.title)];
+            saveSettingsDebounced();
+            await scanCharacter(ch);
+            await renderTree();
+        });
+        $detail.append($item);
+    }
+    return $detail;
+}
+
 /** Opens a multi-file picker and uploads into the character's folder. */
 function pickAndUpload(ch) {
     const input = document.getElementById('xp_file_input');
@@ -900,7 +1101,7 @@ function pickAndUpload(ch) {
     input.onchange = async () => {
         if (input.files?.length) {
             const toast = toastr.info(`Uploading ${input.files.length} file(s)…`, 'Expressions Plus', { timeOut: 0, extendedTimeOut: 0 });
-            const { uploaded, failed } = await bulkUpload(ch.folder, Array.from(input.files));
+            const { uploaded, failed } = await bulkUpload(ch, ch.folder, Array.from(input.files));
             toastr.clear(toast);
             reportUpload(ch, uploaded, failed);
             await scanCharacter(ch);
@@ -932,7 +1133,7 @@ async function handleDrop(ch, dataTransfer) {
     let uploaded = 0, failed = 0;
 
     if (looseFiles.length) {
-        const res = await bulkUpload(ch.folder, looseFiles);
+        const res = await bulkUpload(ch, ch.folder, looseFiles);
         uploaded += res.uploaded;
         failed += res.failed;
     }
@@ -999,19 +1200,38 @@ async function onUnregisterSubfolder(ch, entry) {
     await renderTree();
 }
 
-/** Sets or clears the tag (setting/outfit/mood description) for an expression. */
+/** Sets or clears the expression-level tag. */
 async function onTagExpression(ch, entry) {
-    const input = await Popup.show.input(
+    const tag = await showTagPopup(
         'Tag expression',
-        `Short description for <tt>${escapeHtml(entry.label)}</tt> — the setting, outfit, or mood it depicts (e.g. "school cafeteria, lunch scene" or "beach, swimsuit"). Sent to the classifier alongside the name. Leave empty to remove the tag.`,
+        `Short description for <tt>${escapeHtml(entry.label)}</tt> — the setting, outfit, or mood it depicts (e.g. "school cafeteria, lunch scene"). Applies to all its images unless an image has its own tag. Leave empty to remove.`,
         entry.tag || '',
     );
-    if (input === null || input === undefined) return; // cancelled
-    const tag = String(input).trim().replace(/\s+/g, ' ').slice(0, 200);
+    if (tag === null) return; // cancelled
     if (tag) {
         ch.tags[entry.label] = tag;
+        recordTag(tag);
     } else {
         delete ch.tags[entry.label];
+    }
+    saveSettingsDebounced();
+    await renderTree();
+}
+
+/** Sets or clears one image's own tag (overrides the expression tag). */
+async function onTagImage(ch, entry, file) {
+    const key = imageTagKey(entry.label, file.title);
+    const tag = await showTagPopup(
+        'Tag image',
+        `Own tag for <tt>${escapeHtml(file.title)}</tt> (overrides the expression tag${entry.tag ? `: "${escapeHtml(entry.tag)}"` : ''}). Images of <tt>${escapeHtml(entry.label)}</tt> with different tags are offered to the AI as separate variants, so the tag decides which image pool is used. Leave empty to remove.`,
+        ch.imageTags[key] || '',
+    );
+    if (tag === null) return; // cancelled
+    if (tag) {
+        ch.imageTags[key] = tag;
+        recordTag(tag);
+    } else {
+        delete ch.imageTags[key];
     }
     saveSettingsDebounced();
     await renderTree();
@@ -1069,6 +1289,9 @@ async function onDeleteExpression(ch, entry) {
         delete folderCache[subfolderPath(ch, entry.subfolder)];
     }
     delete ch.tags[entry.label];
+    for (const key of Object.keys(ch.imageTags)) {
+        if (key.startsWith(`${entry.label}::`)) delete ch.imageTags[key];
+    }
     saveSettingsDebounced();
     await scanCharacter(ch);
     await renderTree();
@@ -1089,7 +1312,7 @@ async function onAddCharacter() {
         return;
     }
     const folder = `${cardKey}/${sanitizeFolderPart(trimmed)}`;
-    const ch = { name: trimmed, folder, subfolders: [], tags: {} };
+    const ch = { name: trimmed, folder, subfolders: [], tags: {}, imageTags: {} };
     card.characters.push(ch);
     saveSettingsDebounced();
     await scanCharacter(ch);
@@ -1148,6 +1371,10 @@ async function addSettingsPanel() {
         s.rerollIfSame = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
+    $('#xp_strip_name').prop('checked', s.stripCharName).on('input', function () {
+        s.stripCharName = !!$(this).prop('checked');
+        saveSettingsDebounced();
+    });
 
     // Endpoint
     $('#xp_api_url').val(s.apiUrl).on('input', function () {
@@ -1196,7 +1423,7 @@ async function addSettingsPanel() {
         await scanAll();
         await renderTree();
         const total = getOptions().length;
-        toastr.success(`Scan complete. ${total} expression(s) with images available.`, 'Expressions Plus');
+        toastr.success(`Scan complete. ${total} option(s) with images available.`, 'Expressions Plus');
     });
 
     await renderTree();
@@ -1232,6 +1459,7 @@ function bindEvents() {
         hideSprite();
         lastClassifiedText = null;
         folderCache = {};
+        expandedExpressions = new Set();
         await scanAll();
         await renderTree();
     });
@@ -1240,6 +1468,7 @@ function bindEvents() {
 (async function init() {
     getSettings();
     addSpriteHolder();
+    bindTagChipDelegate();
     await addSettingsPanel();
     bindEvents();
     // Initial pass for an already-open chat
