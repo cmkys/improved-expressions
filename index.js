@@ -105,8 +105,8 @@ let sessionTagHistory = [];
 let expandedExpressions = new Set();
 /** Which group sections are expanded, keyed "folder::group::name" */
 let expandedGroups = new Set();
-/** Which character blocks are COLLAPSED (characters default to expanded), keyed by folder */
-let collapsedCharacters = new Set();
+/** Which character blocks are EXPANDED (characters start collapsed), keyed by folder */
+let expandedCharacters = new Set();
 /** Internal chip drag payload */
 let currentDrag = null;
 
@@ -1394,7 +1394,7 @@ async function renderTree() {
  */
 function buildCharacterBlock(cardKey, card, ch) {
     const expressions = getCharacterExpressions(ch);
-    const collapsed = collapsedCharacters.has(ch.folder);
+    const collapsed = !expandedCharacters.has(ch.folder);
     const withImages = expressions.filter(e => e.files.length > 0).length;
     const summaryParts = [`${withImages} expression${withImages === 1 ? '' : 's'}`];
     if (ch.groups.length) summaryParts.push(`${ch.groups.length} group${ch.groups.length === 1 ? '' : 's'}`);
@@ -1421,8 +1421,8 @@ function buildCharacterBlock(cardKey, card, ch) {
     // Header click toggles expand/collapse (buttons excluded)
     $block.find('.xp_char_header').on('click', async (e) => {
         if ($(e.target).closest('.xp_char_actions').length) return;
-        if (collapsedCharacters.has(ch.folder)) collapsedCharacters.delete(ch.folder);
-        else collapsedCharacters.add(ch.folder);
+        if (expandedCharacters.has(ch.folder)) expandedCharacters.delete(ch.folder);
+        else expandedCharacters.add(ch.folder);
         await renderTree();
     });
 
@@ -1500,7 +1500,7 @@ function buildCharacterBlock(cardKey, card, ch) {
         delete folderCache[ch.folder];
         for (const sub of ch.subfolders) delete folderCache[subfolderPath(ch, sub)];
         for (const g of ch.groups) delete folderCache[subfolderPath(ch, g)];
-        collapsedCharacters.delete(ch.folder);
+        expandedCharacters.delete(ch.folder);
         saveSettingsDebounced();
         await renderTree();
     });
@@ -2127,6 +2127,7 @@ async function onAddCharacter() {
     const folder = `${cardKey}/${sanitizeFolderPart(trimmed)}`;
     const ch = { name: trimmed, folder, subfolders: [], groups: [], tags: {}, imageTags: {} };
     card.characters.push(ch);
+    expandedCharacters.add(folder); // open the new character so its drop zone is visible
     saveSettingsDebounced();
     await scanCharacter(ch);
     await renderTree();
@@ -2303,7 +2304,7 @@ function bindEvents() {
         folderCache = {};
         expandedExpressions = new Set();
         expandedGroups = new Set();
-        collapsedCharacters = new Set();
+        expandedCharacters = new Set();
         await scanAll();
         await renderTree();
     });
