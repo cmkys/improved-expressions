@@ -105,6 +105,8 @@ let sessionTagHistory = [];
 let expandedExpressions = new Set();
 /** Which group sections are expanded, keyed "folder::group::name" */
 let expandedGroups = new Set();
+/** Which character blocks are COLLAPSED (characters default to expanded), keyed by folder */
+let collapsedCharacters = new Set();
 /** Internal chip drag payload */
 let currentDrag = null;
 
@@ -1392,20 +1394,41 @@ async function renderTree() {
  */
 function buildCharacterBlock(cardKey, card, ch) {
     const expressions = getCharacterExpressions(ch);
+    const collapsed = collapsedCharacters.has(ch.folder);
+    const withImages = expressions.filter(e => e.files.length > 0).length;
+    const summaryParts = [`${withImages} expression${withImages === 1 ? '' : 's'}`];
+    if (ch.groups.length) summaryParts.push(`${ch.groups.length} group${ch.groups.length === 1 ? '' : 's'}`);
     const $block = $(`
-        <div class="xp_char">
-            <div class="xp_char_header">
+        <div class="xp_char ${collapsed ? 'xp_char_collapsed' : ''}">
+            <div class="xp_char_header interactable" title="Click to ${collapsed ? 'expand' : 'collapse'}">
+                <i class="fa-solid ${collapsed ? 'fa-caret-right' : 'fa-caret-down'} xp_char_caret"></i>
                 <i class="fa-solid fa-user"></i>
                 <b class="xp_char_name">${escapeHtml(ch.name)}</b>
+                ${collapsed ? `<span class="xp_char_summary">${escapeHtml(summaryParts.join(' · '))}</span>` : ''}
                 <div class="xp_char_actions">
                     <div class="menu_button xp_btn interactable" data-act="add" title="Add images (each filename becomes an expression; the character's name is stripped from filenames)"><i class="fa-solid fa-file-circle-plus"></i></div>
-                    <div class="menu_button xp_btn interactable" data-act="addfolder" title="Register an expression folder — every image inside <char>/<name>/ counts as that expression"><i class="fa-solid fa-folder-plus"></i></div>
+                    <div class="menu_button xp_btn interactable" data-act="addfolder" title="Register an expression folder — every image inside counts as that expression"><i class="fa-solid fa-folder-plus"></i></div>
                     <div class="menu_button xp_btn interactable" data-act="addgroup" title="Create a group for an action sequence (e.g. 'jumping'). Members lose the prefix in their filenames; the AI still sees the full name."><i class="fa-solid fa-object-group"></i></div>
                     <div class="menu_button xp_btn interactable" data-act="autosort" title="Auto-sort: move every ungrouped expression matching a group's name/prefix into that group. Expressions already in groups are untouched."><i class="fa-solid fa-wand-magic-sparkles"></i></div>
                     <div class="menu_button xp_btn interactable" data-act="rename" title="Rename character"><i class="fa-solid fa-pencil"></i></div>
                     <div class="menu_button xp_btn interactable" data-act="remove" title="Remove character from this card (image files stay on disk)"><i class="fa-solid fa-xmark"></i></div>
                 </div>
             </div>
+            <div class="xp_char_body"></div>
+        </div>
+    `);
+
+    // Header click toggles expand/collapse (buttons excluded)
+    $block.find('.xp_char_header').on('click', async (e) => {
+        if ($(e.target).closest('.xp_char_actions').length) return;
+        if (collapsedCharacters.has(ch.folder)) collapsedCharacters.delete(ch.folder);
+        else collapsedCharacters.add(ch.folder);
+        await renderTree();
+    });
+
+    const $body = $block.find('.xp_char_body');
+    if (!collapsed) {
+        $body.append(`
             <div class="xp_char_folder">
                 <small>Folder</small>
                 <input type="text" class="text_pole xp_folder_input" value="${escapeHtml(ch.folder)}" title="Sprite folder, relative to /characters/. Edit and press Enter." />
@@ -1413,29 +1436,50 @@ function buildCharacterBlock(cardKey, card, ch) {
             <div class="xp_groups"></div>
             <div class="xp_expr_grid"></div>
             <div class="xp_drop_hint"><i class="fa-solid fa-images"></i> Drop images or expression folders here</div>
-        </div>
-    `);
+        `);
 
-    // Group sections
-    const $groups = $block.find('.xp_groups');
-    for (const g of ch.groups) {
-        $groups.append(buildGroupSection(ch, g, expressions.filter(e => e.group === g)));
-    }
-
-    // Ungrouped grid (also a drop target for pulling expressions OUT of groups)
-    const $grid = $block.find('.xp_expr_grid');
-    const ungrouped = expressions.filter(e => !e.group);
-    if (ungrouped.length === 0) {
-        $grid.append(`<div class="xp_hint">${ch.groups.length ? 'No ungrouped expressions. Drag one here to pull it out of a group (its prefix is restored).' : 'No expressions. Add images or folders, or fill the folder on disk and Scan.'}</div>`);
-    }
-    for (const entry of ungrouped) {
-        const expandKey = `${ch.folder}::${entry.label}`;
-        $grid.append(buildExpressionChip(ch, entry, expandKey));
-        if (expandedExpressions.has(expandKey) && entry.files.length > 1) {
-            $grid.append(buildExpressionDetail(ch, entry));
+        // Group sections
+        const $groups = $body.find('.xp_groups');
+        for (const g of ch.groups) {
+            $groups.append(buildGroupSection(ch, g, expressions.filter(e => e.group === g)));
         }
+
+        // Ungrouped grid (also a drop target for pulling expressions OUT of groups)
+        const $grid = $body.find('.xp_expr_grid');
+        const ungrouped = expressions.filter(e => !e.group);
+        if (ungrouped.length === 0) {
+            $grid.append(`<div class="xp_hint">${ch.groups.length ? 'No ungrouped expressions. Drag one here to pull it out of a group (its prefix is restored).' : 'No expressions. Add images or folders, or fill the folder on disk and Scan.'}</div>`);
+        }
+        for (const entry of ungrouped) {
+            const expandKey = `${ch.folder}::${entry.label}`;
+            $grid.append(buildExpressionChip(ch, entry, expandKey));
+            if (expandedExpressions.has(expandKey) && entry.files.length > 1) {
+                $grid.append(buildExpressionDetail(ch, entry));
+            }
+        }
+        wireInternalDropTarget(ch, $grid.get(0), null);
+
+        // Folder edit
+        const applyFolder = async (input) => {
+            const value = String($(input).val()).trim().replace(/^\/+|\/+$/g, '');
+            if (!value || value === ch.folder) return;
+            if ((value.match(/\//g) || []).length > 1) {
+                toastr.warning('SillyTavern\'s sprites API only supports one "/" in a folder path (character/subfolder). Deeper paths are silently truncated by the server.', 'Expressions Plus');
+                $(input).val(ch.folder);
+                return;
+            }
+            delete folderCache[ch.folder];
+            for (const sub of ch.subfolders) delete folderCache[subfolderPath(ch, sub)];
+            for (const g of ch.groups) delete folderCache[subfolderPath(ch, g)];
+            ch.folder = value;
+            saveSettingsDebounced();
+            await scanCharacter(ch);
+            await renderTree();
+        };
+        $body.find('.xp_folder_input')
+            .on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); this.blur(); } })
+            .on('blur', function () { applyFolder(this); });
     }
-    wireInternalDropTarget(ch, $grid.get(0), null);
 
     // Header actions
     $block.find('[data-act="add"]').on('click', () => pickAndUpload(ch));
@@ -1456,32 +1500,13 @@ function buildCharacterBlock(cardKey, card, ch) {
         delete folderCache[ch.folder];
         for (const sub of ch.subfolders) delete folderCache[subfolderPath(ch, sub)];
         for (const g of ch.groups) delete folderCache[subfolderPath(ch, g)];
+        collapsedCharacters.delete(ch.folder);
         saveSettingsDebounced();
         await renderTree();
     });
 
-    // Folder edit
-    const applyFolder = async (input) => {
-        const value = String($(input).val()).trim().replace(/^\/+|\/+$/g, '');
-        if (!value || value === ch.folder) return;
-        if ((value.match(/\//g) || []).length > 1) {
-            toastr.warning('SillyTavern\'s sprites API only supports one "/" in a folder path (character/subfolder). Deeper paths are silently truncated by the server.', 'Expressions Plus');
-            $(input).val(ch.folder);
-            return;
-        }
-        delete folderCache[ch.folder];
-        for (const sub of ch.subfolders) delete folderCache[subfolderPath(ch, sub)];
-        for (const g of ch.groups) delete folderCache[subfolderPath(ch, g)];
-        ch.folder = value;
-        saveSettingsDebounced();
-        await scanCharacter(ch);
-        await renderTree();
-    };
-    $block.find('.xp_folder_input')
-        .on('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); this.blur(); } })
-        .on('blur', function () { applyFolder(this); });
-
-    // OS drag & drop upload (files/folders). Ignore internal chip drags.
+    // OS drag & drop upload (files/folders) — works collapsed or expanded.
+    // Ignore internal chip drags.
     const el = $block.get(0);
     const setActive = (on) => el.classList.toggle('xp_drop_active', on);
     const isInternal = (e) => currentDrag || Array.from(e.dataTransfer?.types || []).includes('text/xp-expr');
@@ -2278,6 +2303,7 @@ function bindEvents() {
         folderCache = {};
         expandedExpressions = new Set();
         expandedGroups = new Set();
+        collapsedCharacters = new Set();
         await scanAll();
         await renderTree();
     });
