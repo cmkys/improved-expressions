@@ -241,6 +241,20 @@ function groupLabelOf(spriteName) {
 }
 
 /**
+ * Returns the next free sprite name inside a group: the plain label if
+ * unused, otherwise label-1, label-2, ... skipping taken numbers.
+ * @param {string} label
+ * @param {Set<string>} used - taken sprite names (without extension)
+ * @returns {string}
+ */
+function nextGroupName(label, used) {
+    if (!used.has(label)) return label;
+    let i = 1;
+    while (used.has(`${label}-${i}`)) i++;
+    return `${label}-${i}`;
+}
+
+/**
  * Removes references to the character's name from a filename-derived string
  * to prevent redundant labels: for "Bob Stinger", "bob_happy" → "happy",
  * "stinger-angry" → "angry". Works segment-wise so partial words are safe
@@ -569,8 +583,10 @@ async function uploadIntoSubfolder(ch, subName, files) {
 /**
  * Renames an expression by re-uploading every image under the new label into
  * the character's MAIN folder (suffix convention) and deleting the originals.
- * Consolidates subfolder-based expressions in the process; the old (now empty)
- * subfolder is unregistered. Expression and per-image tags are migrated.
+ * If the target label already exists, the images JOIN that group as the next
+ * free -N variants instead of colliding. Consolidates subfolder-based
+ * expressions in the process; the old (now empty) subfolder is unregistered.
+ * Expression and per-image tags are migrated (an existing target tag wins).
  * SillyTavern has no rename/move endpoint.
  * @param {StoryCharacter} ch
  * @param {ExpressionEntry} entry
@@ -579,18 +595,25 @@ async function uploadIntoSubfolder(ch, subName, files) {
 async function renameExpression(ch, entry, newLabel) {
     /** @type {{oldTitle: string, newTitle: string}[]} */
     const titleMap = [];
-    let index = 0;
+
+    // Reserve every sprite name already in the main folder — including the
+    // target group's existing variants (so merged images get the next free
+    // -N numbers) and this entry's own files (they exist on disk until after
+    // upload, and must never be overwritten before their blob is copied).
+    const used = new Set((folderCache[ch.folder] || []).flatMap(e => e.files.map(f => withoutExtension(f.fileName))));
+    for (const file of entry.files) used.add(withoutExtension(file.fileName));
+
     for (const file of entry.files) {
         const response = await fetch(file.imageSrc, { cache: 'no-cache' });
         if (!response.ok) throw new Error(`Could not read ${file.fileName}`);
         const blob = await response.blob();
         const ext = (file.fileName.split('.').pop() || 'png').toLowerCase();
-        const spriteName = index === 0 ? newLabel : `${newLabel}-${index}`;
+        const spriteName = nextGroupName(newLabel, used);
+        used.add(spriteName);
         const newFile = new File([blob], `${spriteName}.${ext}`, { type: blob.type || 'image/png' });
         const res = await uploadSpriteFile(ch.folder, newFile, newLabel, spriteName);
         if (!res.ok) throw new Error(res.error || 'upload failed');
         titleMap.push({ oldTitle: file.title, newTitle: spriteName });
-        index++;
     }
     for (const file of entry.files) {
         await deleteSpriteFile(file.srcFolder, file.srcLabel, withoutExtension(file.fileName));
@@ -599,9 +622,10 @@ async function renameExpression(ch, entry, newLabel) {
         ch.subfolders = ch.subfolders.filter(sub => sub !== entry.subfolder);
         delete folderCache[subfolderPath(ch, entry.subfolder)];
     }
-    // Migrate the expression tag and per-image tags to the new label/titles
+    // Migrate the expression tag (an existing tag on the target group wins)
+    // and per-image tags to the new label/titles
     if (ch.tags[entry.label]) {
-        ch.tags[newLabel] = ch.tags[entry.label];
+        if (!ch.tags[newLabel]) ch.tags[newLabel] = ch.tags[entry.label];
         delete ch.tags[entry.label];
     }
     for (const { oldTitle, newTitle } of titleMap) {
@@ -1397,28 +1421,28 @@ function buildExpressionDetail(ch, entry) {
 async function onRenameImage(ch, entry, file) {
     const input = await Popup.show.input(
         'Rename image',
-        `New name for <tt>${escapeHtml(file.title)}</tt> (letters, numbers, dashes, underscores).<br><small>Keep <tt>${escapeHtml(entry.label)}</tt> or <tt>${escapeHtml(entry.label)}-N</tt> to stay grouped under this expression. Any other name moves the image to its own (or another) expression.${file.fromFolder ? ' This image is in an expression folder — renaming moves the file into the main character folder.' : ''}</small>`,
+        `New name for <tt>${escapeHtml(file.title)}</tt>.<br><small>Spaces become underscores. Keep <tt>${escapeHtml(entry.label)}</tt> or <tt>${escapeHtml(entry.label)}-N</tt> to stay grouped under this expression. Any other name moves the image to its own (or another) expression — if that name is taken, the next free -N variant number is used and the image joins that group.${file.fromFolder ? ' This image is in an expression folder — renaming moves the file into the main character folder.' : ''}</small>`,
         file.title,
     );
     if (!input) return;
-    const newSpriteName = sanitizeLabel(input);
+    let newSpriteName = sanitizeLabel(String(input).replace(/\s+/g, '_'));
     if (!newSpriteName) {
         toastr.warning('Invalid name.', 'Expressions Plus');
         return;
     }
     if (newSpriteName === file.title && !file.fromFolder) return;
 
-    // Collision check across the main folder (destination)
+    // Name taken in the main folder (destination)? Slot into the same group
+    // with the next free -N number instead of colliding.
     const mainTitles = new Set((folderCache[ch.folder] || []).flatMap(e => e.files.map(f => withoutExtension(f.fileName))));
     if (mainTitles.has(newSpriteName) && newSpriteName !== file.title) {
-        toastr.warning(`A file named "${newSpriteName}" already exists in the character folder.`, 'Expressions Plus');
-        return;
+        newSpriteName = nextGroupName(groupLabelOf(newSpriteName), mainTitles);
     }
 
     try {
         const newLabel = await renameImage(ch, entry, file, newSpriteName);
         if (newLabel !== entry.label) {
-            toastr.success(`Moved to expression "${newLabel}".`, 'Expressions Plus');
+            toastr.success(`Moved to expression "${newLabel}" as ${newSpriteName}.`, 'Expressions Plus');
         } else {
             toastr.success(`Renamed to ${newSpriteName}.`, 'Expressions Plus');
         }
@@ -1579,24 +1603,22 @@ async function onRenameExpression(ch, entry) {
         : '';
     const input = await Popup.show.input(
         'Rename expression',
-        `New name for <tt>${escapeHtml(entry.label)}</tt> (letters, numbers, dashes, underscores). All ${entry.files.length} image file(s) will be renamed on disk.${fromFolderNote}`,
+        `New name for <tt>${escapeHtml(entry.label)}</tt>. All ${entry.files.length} image file(s) will be renamed on disk.${fromFolderNote}<br><small>Spaces become underscores. If the name already exists, these images join that expression as additional variants (next free -N numbers).</small>`,
         entry.label,
     );
     if (!input) return;
-    const newLabel = sanitizeLabel(input);
+    const newLabel = sanitizeLabel(String(input).replace(/\s+/g, '_'));
     if (!newLabel) {
         toastr.warning('Invalid expression name.', 'Expressions Plus');
         return;
     }
     if (newLabel === entry.label) return;
-    const existing = getCharacterExpressions(ch).some(x => x.label === newLabel && x.files.length > 0);
-    if (existing) {
-        toastr.warning(`Expression "${newLabel}" already exists for this character.`, 'Expressions Plus');
-        return;
-    }
+    const mergeTarget = getCharacterExpressions(ch).some(x => x.label === newLabel && x.files.length > 0);
     try {
         await renameExpression(ch, entry, newLabel);
-        toastr.success(`Renamed to ${newLabel}.`, 'Expressions Plus');
+        toastr.success(mergeTarget
+            ? `Merged ${entry.files.length} image(s) into existing expression "${newLabel}".`
+            : `Renamed to ${newLabel}.`, 'Expressions Plus');
     } catch (err) {
         console.error('[expressions-plus] Rename failed:', err);
         toastr.error(`Rename failed: ${err.message}`, 'Expressions Plus');
