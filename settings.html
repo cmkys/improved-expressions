@@ -80,8 +80,9 @@
                 <small>
                     Sprites for this card live in <tt>/characters/&lt;card&gt;/&lt;character&gt;/</tt> inside your user data folder.
                     Two ways to give an expression multiple images, freely combined:
-                    suffix files (<tt>casual.png</tt>, <tt>casual-1.png</tt>, <tt>casual.beach.png</tt> → <tt>casual</tt>)
-                    and expression folders (<tt>casual/</tt> — every image inside counts, any filename).
+                    suffix files (<tt>casual.png</tt>, <tt>casual-1.png</tt> → <tt>casual</tt>)
+                    and expression folders (every image inside counts, any filename).
+                    Expression folders and groups are stored as companion folders next to the character folder, e.g. <tt>&lt;character&gt;.jumping/</tt> — SillyTavern's sprites API can't read deeper nesting.
                     Drop a whole folder onto a character to upload &amp; register it in one step; folders made on disk are added with the <i class="fa-solid fa-folder-plus"></i> button, then Scan picks up changes.
                     Use the <i class="fa-solid fa-tag"></i> on an expression to describe its setting/outfit — the description is sent to the classifier for accuracy.
                 </small>

@@ -222,8 +222,21 @@ function escapeHtml(str) {
         .replace(/"/g, '&quot;');
 }
 
+/**
+ * Path of a container folder (expression subfolder or group).
+ *
+ * IMPORTANT: SillyTavern's sprites API resolves folder names as AT MOST two
+ * path segments (character/subfolder) — a third "/" segment is silently
+ * dropped, which would make nested containers under "card/char/…" read and
+ * write the character's MAIN folder. So containers are stored as SIBLING
+ * folders encoded into the last segment with a dot:
+ *   card/CharName  +  "jumping"  →  card/CharName.jumping
+ * This stays within the two-segment limit for any character folder that has
+ * at most one "/" itself.
+ */
+const CONTAINER_DELIMITER = '.';
 function subfolderPath(ch, sub) {
-    return `${ch.folder}/${sub}`;
+    return `${ch.folder}${CONTAINER_DELIMITER}${sub}`;
 }
 
 function imageTagKey(label, title) {
@@ -1451,6 +1464,11 @@ function buildCharacterBlock(cardKey, card, ch) {
     const applyFolder = async (input) => {
         const value = String($(input).val()).trim().replace(/^\/+|\/+$/g, '');
         if (!value || value === ch.folder) return;
+        if ((value.match(/\//g) || []).length > 1) {
+            toastr.warning('SillyTavern\'s sprites API only supports one "/" in a folder path (character/subfolder). Deeper paths are silently truncated by the server.', 'Expressions Plus');
+            $(input).val(ch.folder);
+            return;
+        }
         delete folderCache[ch.folder];
         for (const sub of ch.subfolders) delete folderCache[subfolderPath(ch, sub)];
         for (const g of ch.groups) delete folderCache[subfolderPath(ch, g)];
@@ -1822,7 +1840,7 @@ async function handleDrop(ch, dataTransfer) {
 async function onAddSubfolder(ch) {
     const input = await Popup.show.input(
         'Add expression folder',
-        `Name of a subfolder inside <tt>${escapeHtml(ch.folder)}/</tt>. Every image inside it counts as one expression named after the folder. Create the folder on disk and drop images in it whenever you like — Scan picks up changes.`,
+        `Name for the folder. Every image inside it counts as one expression named after it. On disk it lives as a companion folder <tt>${escapeHtml(ch.folder)}.&lt;name&gt;</tt> next to the character folder (SillyTavern's sprites API can't nest deeper). Create it on disk and drop images in whenever you like — Scan picks up changes.`,
     );
     if (!input || !input.trim()) return;
     const subName = sanitizeFolderPart(input.trim());
@@ -1853,7 +1871,7 @@ async function onAddSubfolder(ch) {
 async function onAddGroup(ch) {
     const input = await Popup.show.input(
         'Create group',
-        'Name of the action this group holds (e.g. <tt>jumping</tt>). Drag expressions in — the <tt>jumping_</tt> prefix is stripped from their filenames and automatically added back when sent to the AI. Auto-sort pulls in every ungrouped expression matching the name.',
+        `Name of the action this group holds (e.g. <tt>jumping</tt>). Drag expressions in — the <tt>jumping_</tt> prefix is stripped from their filenames and automatically added back when sent to the AI. Auto-sort pulls in every ungrouped expression matching the name. On disk, members live in a companion folder <tt>${escapeHtml(ch.folder)}.&lt;group&gt;</tt>.`,
     );
     if (!input || !input.trim()) return;
     const g = sanitizeLabel(String(input).replace(/\s+/g, '_'));
