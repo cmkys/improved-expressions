@@ -190,8 +190,38 @@
     background-color: #00000030;
 }
 
+.xp_expr_thumb_empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.4;
+    font-size: 0.8em;
+}
+
+.xp_expr_empty {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.xp_expr_text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    line-height: 1.2;
+}
+
 .xp_expr_label {
     font-size: 0.85em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 10rem;
+}
+
+.xp_expr_tag_text {
+    font-size: 0.68em;
+    opacity: 0.65;
+    font-style: italic;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -204,6 +234,20 @@
     flex-shrink: 0;
 }
 
+.xp_expr_folder {
+    font-size: 0.75em;
+    opacity: 0.55;
+    flex-shrink: 0;
+    padding: 0.15rem;
+    transition: opacity 120ms ease, color 120ms ease;
+}
+
+.xp_expr_folder:hover {
+    color: #ffb454;
+    opacity: 1;
+}
+
+.xp_expr_tag_btn,
 .xp_expr_edit,
 .xp_expr_del {
     opacity: 0.35;
@@ -212,9 +256,20 @@
     transition: opacity 120ms ease, color 120ms ease;
 }
 
+.xp_expr_tag_btn.xp_tagged {
+    opacity: 0.8;
+    color: var(--SmartThemeQuoteColor, #4ea1ff);
+}
+
+.xp_expr:hover .xp_expr_tag_btn,
 .xp_expr:hover .xp_expr_edit,
 .xp_expr:hover .xp_expr_del {
     opacity: 0.85;
+}
+
+.xp_expr_tag_btn:hover {
+    color: var(--SmartThemeQuoteColor, #4ea1ff);
+    opacity: 1;
 }
 
 .xp_expr_del:hover {

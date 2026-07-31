@@ -27,11 +27,12 @@ Copy this folder into:
 1. Open a chat with a character card.
 2. In the panel, set your **Classifier endpoint**: full `/chat/completions` URL, API key, and model name. Hit **Test connection**. If you get CORS errors in the browser console, enable `enableCorsProxy: true` in `config.yaml` and tick **Use CORS proxy**.
 3. Click **Add character** and name a character that appears in the story (this is the name the AI sees). A folder is registered at `/characters/<card>/<character>/` in your user data directory.
-4. Add images:
-   - Drag & drop image files onto the character's block (or use the **+file** button). Each filename becomes an expression label: `casual.png` → `casual`.
-   - Multiple images per expression via suffixes: `casual.png`, `casual-1.png`, `casual.beach.png` are all the `casual` expression — one is picked at random (with optional re-roll so the same image doesn't repeat).
-   - Or manage the folder directly on disk (add/rename/delete files, whole subfolders per character), then press **Scan folders**.
-5. Chat. On each enabled trigger, the last N messages (configurable) are sent to your classifier with the option list, and the chosen character's sprite is displayed. Click any expression chip to force-display it.
+4. Add images — two mechanisms, freely combined per expression:
+   - **Suffix files** in the character folder: drag & drop image files onto the character's block (or use the **+file** button). Each filename becomes an expression label: `casual.png` → `casual`; `casual-1.png` and `casual.beach.png` join it as variants.
+   - **Expression folders**: a subfolder like `casual/` where *every* image inside counts as `casual`, regardless of filename. Drop a whole folder from your OS onto a character block to upload and register it in one step. For folders you create directly on disk, click the folder-plus button once to register the name, then **Scan folders** picks up any changes forever after. If both a `casual/` folder and `casual*`-suffix files exist, their images are merged into one pool — one image is picked at random (with optional re-roll so the same image doesn't repeat).
+   - Chips backed by a folder show a small folder icon; click it to unregister the folder without deleting any files.
+5. **Tag expressions** (optional, recommended for scene-specific sprites): click the tag icon on a chip and describe the setting/outfit/mood — e.g. `school cafeteria, lunch scene` or `beach, swimsuit, sunset`. Tags are sent to the classifier as `Character/expression — description`, and the model is instructed to use the description when choosing but reply with only the `Character/expression` part.
+6. Chat. On each enabled trigger, the last N messages (configurable) are sent to your classifier with the option list, and the chosen character's sprite is displayed. Click any expression chip to force-display it.
 
 ## Notes
 
