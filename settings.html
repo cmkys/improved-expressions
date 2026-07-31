@@ -1,0 +1,99 @@
+<div class="xp_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>Expressions Plus</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+
+        <div class="inline-drawer-content">
+
+            <label class="checkbox_label" for="xp_enabled">
+                <input id="xp_enabled" type="checkbox">
+                <span>Enabled</span>
+            </label>
+
+            <div class="xp_section">
+                <div class="xp_section_title">Triggers</div>
+                <small>Classification only runs on these events — there is no polling loop.</small>
+                <label class="checkbox_label" for="xp_on_ai">
+                    <input id="xp_on_ai" type="checkbox">
+                    <span>When the AI sends a message</span>
+                </label>
+                <label class="checkbox_label" for="xp_on_user">
+                    <input id="xp_on_user" type="checkbox">
+                    <span>When you send a message</span>
+                </label>
+                <label class="checkbox_label" for="xp_on_swipe">
+                    <input id="xp_on_swipe" type="checkbox">
+                    <span>On swipes and edits of the last message</span>
+                </label>
+            </div>
+
+            <div class="xp_section">
+                <div class="xp_section_title">Context</div>
+                <label for="xp_history_depth">Past messages to include</label>
+                <small>How many recent chat messages the classifier sees. 1 = only the newest message. More context helps it pick scene-specific sprites and the right character, but costs more tokens.</small>
+                <input id="xp_history_depth" type="number" class="text_pole" min="1" max="50" step="1" value="4" />
+                <label class="checkbox_label m-t-1" for="xp_reroll" title="If an expression has multiple images and the same expression is chosen again, pick a different image.">
+                    <input id="xp_reroll" type="checkbox">
+                    <span>Re-roll image if same expression repeats</span>
+                </label>
+            </div>
+
+            <div class="xp_section">
+                <div class="xp_section_title">Classifier endpoint</div>
+                <small>Any OpenAI-compatible /chat/completions endpoint. Runs separately from your main chat API, so it never interferes with generation.</small>
+                <input id="xp_api_url" type="text" class="text_pole m-t-1" placeholder="Full URL, e.g. https://api.z.ai/api/paas/v4/chat/completions" />
+                <input id="xp_api_key" type="password" class="text_pole m-t-1" placeholder="API key (Bearer)" autocomplete="off" />
+                <input id="xp_api_model" type="text" class="text_pole m-t-1" placeholder="Model name (e.g. glm-4.7)" />
+                <label class="checkbox_label m-t-1" for="xp_api_proxy" title="Route through SillyTavern's CORS proxy. Requires enableCorsProxy: true in config.yaml. Use this if the browser console shows CORS errors.">
+                    <input id="xp_api_proxy" type="checkbox">
+                    <span>Use CORS proxy (fixes browser CORS errors)</span>
+                </label>
+                <div id="xp_api_test" class="menu_button m-t-1">
+                    <i class="fa-solid fa-plug"></i>
+                    <span>Test connection</span>
+                </div>
+            </div>
+
+            <div class="xp_section">
+                <label for="xp_prompt" class="title_restorable">
+                    <span>Selection prompt</span>
+                    <div id="xp_prompt_restore" title="Restore default value" class="right_menu_button">
+                        <i class="fa-solid fa-clock-rotate-left fa-sm"></i>
+                    </div>
+                </label>
+                <small>Use the <tt>&lcub;&lcub;labels&rcub;&rcub;</tt> macro — it is replaced with the list of <tt>Character/expression</tt> options that currently have images. Empty expressions are never sent.</small>
+                <textarea id="xp_prompt" class="text_pole textarea_compact autoSetHeight" rows="4"></textarea>
+            </div>
+
+            <hr>
+
+            <div class="xp_section">
+                <div class="xp_section_title">
+                    <span>Card:</span>&nbsp;<span id="xp_card_name" class="xp_card_name">—</span>
+                </div>
+                <small>
+                    Sprites for this card live in <tt>/characters/&lt;card&gt;/&lt;character&gt;/</tt> inside your user data folder.
+                    Multiple images per expression: <tt>casual.png</tt>, <tt>casual-1.png</tt>, <tt>casual.beach.png</tt> all belong to <tt>casual</tt>.
+                    Feel free to add / rename / delete files on disk, then hit Scan.
+                </small>
+                <div class="flex-container m-t-1">
+                    <div id="xp_add_character" class="menu_button">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>Add character</span>
+                    </div>
+                    <div id="xp_scan" class="menu_button" title="Re-read every registered character folder from disk">
+                        <i class="fa-solid fa-rotate"></i>
+                        <span>Scan folders</span>
+                    </div>
+                </div>
+                <div id="xp_tree" class="xp_tree"></div>
+            </div>
+
+        </div>
+    </div>
+    <form>
+        <input type="file" id="xp_file_input" accept="image/*" multiple hidden>
+    </form>
+</div>

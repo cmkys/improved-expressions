@@ -1,0 +1,236 @@
+/* ── Sprite display ────────────────────────────────────────────── */
+
+#xp-wrapper {
+    display: contents;
+}
+
+.xp-holder {
+    min-width: 100px;
+    min-height: 100px;
+    max-height: 90vh;
+    max-width: 90vh;
+    width: calc((100vw - var(--sheldWidth)) / 2);
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    padding: 0;
+    filter: drop-shadow(2px 2px 2px #51515199);
+    z-index: 2;
+    overflow: hidden;
+    resize: both;
+    display: flex;
+    justify-content: center;
+}
+
+.xp-image {
+    min-width: 100px;
+    min-height: 100px;
+    max-height: 90vh;
+    max-width: 90vh;
+    vertical-align: bottom;
+    object-fit: contain;
+    opacity: 1;
+    transition: opacity 180ms ease;
+}
+
+.xp-image.xp-fading {
+    opacity: 0;
+}
+
+.xp-image[src=""] {
+    visibility: hidden;
+}
+
+/* ── Settings panel ────────────────────────────────────────────── */
+
+.xp_settings .xp_section {
+    margin: 0.75rem 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.xp_settings .xp_section_title {
+    font-weight: 600;
+}
+
+.xp_settings label {
+    display: flex;
+    align-items: center;
+    flex-direction: row;
+    margin-left: 0;
+}
+
+.xp_settings label input {
+    margin-left: 0 !important;
+}
+
+.xp_card_name {
+    font-weight: 400;
+    opacity: 0.9;
+}
+
+.xp_hint {
+    opacity: 0.7;
+    font-size: 0.85em;
+    padding: 0.4rem 0.2rem;
+}
+
+/* ── Character tree ────────────────────────────────────────────── */
+
+.xp_tree {
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+    margin-top: 0.6rem;
+}
+
+.xp_char {
+    border: 1px solid var(--SmartThemeBorderColor, #888);
+    border-radius: 10px;
+    padding: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.xp_char.xp_drop_active {
+    border-color: var(--SmartThemeQuoteColor, #4ea1ff);
+    background-color: #4ea1ff22;
+}
+
+.xp_char.xp_drop_active .xp_drop_hint {
+    display: flex;
+}
+
+.xp_drop_hint {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.25rem;
+    opacity: 0.8;
+    font-size: 0.85em;
+    pointer-events: none;
+}
+
+.xp_char_header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.xp_char_name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xp_char_actions {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.xp_char_actions .xp_btn {
+    margin: 0;
+    padding: 0.15rem 0.45rem;
+}
+
+.xp_char_folder {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.xp_char_folder small {
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.xp_folder_input {
+    flex: 1;
+    margin: 0;
+    font-size: 0.85em;
+}
+
+/* ── Expression chips ──────────────────────────────────────────── */
+
+.xp_expr_grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+}
+
+.xp_expr {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.25rem 0.45rem;
+    border: 1px solid var(--SmartThemeBorderColor, #888);
+    border-radius: 8px;
+    background-color: #51515140;
+    cursor: pointer;
+    max-width: 100%;
+    transition: background-color 120ms ease;
+}
+
+.xp_expr:hover {
+    background-color: #51515180;
+}
+
+.xp_expr_thumb {
+    width: 28px;
+    height: 28px;
+    object-fit: cover;
+    border-radius: 5px;
+    flex-shrink: 0;
+    background-color: #00000030;
+}
+
+.xp_expr_label {
+    font-size: 0.85em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 10rem;
+}
+
+.xp_expr_count {
+    font-size: 0.7em;
+    opacity: 0.7;
+    flex-shrink: 0;
+}
+
+.xp_expr_edit,
+.xp_expr_del {
+    opacity: 0.35;
+    padding: 0.15rem;
+    flex-shrink: 0;
+    transition: opacity 120ms ease, color 120ms ease;
+}
+
+.xp_expr:hover .xp_expr_edit,
+.xp_expr:hover .xp_expr_del {
+    opacity: 0.85;
+}
+
+.xp_expr_del:hover {
+    color: #ff6b6b;
+    opacity: 1;
+}
+
+.xp_expr_edit:hover {
+    color: var(--SmartThemeQuoteColor, #4ea1ff);
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .xp-image,
+    .xp_char,
+    .xp_expr {
+        transition: none;
+    }
+}
