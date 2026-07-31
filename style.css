@@ -351,6 +351,7 @@
 }
 
 .xp_img_tag_btn,
+.xp_img_edit,
 .xp_img_del {
     opacity: 0.35;
     padding: 0.2rem;
@@ -364,11 +365,13 @@
 }
 
 .xp_img_item:hover .xp_img_tag_btn,
+.xp_img_item:hover .xp_img_edit,
 .xp_img_item:hover .xp_img_del {
     opacity: 0.85;
 }
 
-.xp_img_tag_btn:hover {
+.xp_img_tag_btn:hover,
+.xp_img_edit:hover {
     color: var(--SmartThemeQuoteColor, #4ea1ff);
     opacity: 1;
 }

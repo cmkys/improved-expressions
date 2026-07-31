@@ -35,6 +35,13 @@ Copy this folder into:
 6. **Filename cleanup**: uploads automatically strip the character's name from filenames to prevent redundant labels — for a character named Bob Stinger, `bob_happy.png` becomes the expression `happy` and `stinger-angry.png` becomes `angry` (whole segments only, so `bobble.png` is untouched). Toggleable in settings.
 7. Chat. On each enabled trigger, the last N messages (configurable) are sent to your classifier with the option list, and the chosen character's sprite is displayed. Click any expression chip to force-display it.
 
+## Extra features
+
+- **Single-image expressions** display immediately on click; only multi-image expressions expand into the per-image panel.
+- **Image (variant) renaming**: in the expanded panel, the pencil on an image renames it. Keeping the `label` / `label-N` pattern keeps it in the group; any other name moves it out into its own (or another) expression. Renaming an image that lives in an expression folder moves the file into the main character folder (SillyTavern has no move endpoint, so renames are re-upload + delete).
+- **Export / Import**: the Export button saves the current card's entire setup — every character, all image files (embedded), expression-folder structure, and all tags — into one `.json` file. Open a different card and hit Import to merge it in: new characters are created under that card, missing images are uploaded, subfolders are registered, tags are restored, and files that already exist are skipped (nothing is overwritten).
+- **Per-message regen**: every message's "..." menu has a smiley button that re-runs classification anchored at that message (using your configured history depth ending there) and re-rolls the sprite. Works on older messages too, so you can set the scene sprite for any point in the chat.
+
 ## Notes
 
 - **Renaming an expression** re-uploads its images under the new name and deletes the old files (SillyTavern has no rename API), so it physically renames the files on disk.

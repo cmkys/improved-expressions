@@ -94,6 +94,14 @@
                         <i class="fa-solid fa-rotate"></i>
                         <span>Scan folders</span>
                     </div>
+                    <div id="xp_export" class="menu_button" title="Export this card's full setup (characters, images, folders, tags) to a file">
+                        <i class="fa-solid fa-file-export"></i>
+                        <span>Export</span>
+                    </div>
+                    <div id="xp_import" class="menu_button" title="Import a setup exported from another card. Merges into this card; existing files are not overwritten.">
+                        <i class="fa-solid fa-file-import"></i>
+                        <span>Import</span>
+                    </div>
                 </div>
                 <div id="xp_tree" class="xp_tree"></div>
             </div>
@@ -102,5 +110,6 @@
     </div>
     <form>
         <input type="file" id="xp_file_input" accept="image/*" multiple hidden>
+        <input type="file" id="xp_import_input" accept="application/json,.json" hidden>
     </form>
 </div>
