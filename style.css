@@ -381,6 +381,124 @@
     opacity: 1;
 }
 
+/* ── Groups ────────────────────────────────────────────────────── */
+
+.xp_groups {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.xp_group {
+    border: 1px solid var(--SmartThemeBorderColor, #888);
+    border-radius: 8px;
+    overflow: hidden;
+    transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.xp_group_open {
+    border-color: var(--SmartThemeQuoteColor, #4ea1ff);
+}
+
+.xp_group_header {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.3rem 0.5rem;
+    cursor: pointer;
+    background-color: #51515130;
+    transition: background-color 120ms ease;
+}
+
+.xp_group_header:hover {
+    background-color: #51515160;
+}
+
+.xp_group_caret {
+    width: 0.7em;
+    opacity: 0.7;
+}
+
+.xp_group_name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.xp_group_count {
+    font-size: 0.72em;
+    opacity: 0.7;
+    border: 1px solid var(--SmartThemeBorderColor, #888);
+    border-radius: 999px;
+    padding: 0 0.4rem;
+    flex-shrink: 0;
+}
+
+.xp_group_sent {
+    font-size: 0.7em;
+    opacity: 0.55;
+    font-style: italic;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
+}
+
+.xp_group_actions {
+    display: flex;
+    gap: 0.2rem;
+    flex-shrink: 0;
+}
+
+.xp_group_rename,
+.xp_group_del {
+    opacity: 0.4;
+    padding: 0.2rem;
+    transition: opacity 120ms ease, color 120ms ease;
+}
+
+.xp_group_header:hover .xp_group_rename,
+.xp_group_header:hover .xp_group_del {
+    opacity: 0.85;
+}
+
+.xp_group_rename:hover {
+    color: var(--SmartThemeQuoteColor, #4ea1ff);
+    opacity: 1;
+}
+
+.xp_group_del:hover {
+    color: #ff6b6b;
+    opacity: 1;
+}
+
+.xp_group_body {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    padding: 0.45rem;
+}
+
+/* ── Internal drag & drop affordances ──────────────────────────── */
+
+body.xp_expr_dragging .xp_group,
+body.xp_expr_dragging .xp_expr_grid {
+    outline: 1px dashed var(--SmartThemeBorderColor, #888);
+    outline-offset: 2px;
+}
+
+.xp_drop_target {
+    outline: 2px dashed var(--SmartThemeQuoteColor, #4ea1ff) !important;
+    outline-offset: 2px;
+    background-color: #4ea1ff18;
+}
+
+.xp_expr_grid {
+    min-height: 1.5rem;
+    border-radius: 8px;
+}
+
 /* ── Tag history chips (inside popups) ────────────────────────── */
 
 .xp_tag_history_wrap {
