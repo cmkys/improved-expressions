@@ -133,6 +133,7 @@ function getSettings() {
     def('historyDepth', 4);
     def('rerollIfSame', true);
     def('stripCharName', true);
+    def('autoBackup', true);
     def('prompt', DEFAULT_PROMPT);
     def('apiUrl', '');
     def('apiKey', '');
@@ -853,6 +854,123 @@ async function renameGroup(ch, oldName, newName) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Safety backups (server-side, independent of settings.json)
+//
+// Registrations, groups, and tags live inside SillyTavern's settings.json,
+// which is rewritten wholesale on every save — a second device (e.g. a phone
+// tab) holding stale state can clobber it, and that wipes this extension's
+// data even though the image files on disk are untouched. As a safety net,
+// the whole settings slice is snapshotted to the user's files directory
+// (data/<user>/files/) after changes: the latest snapshot plus the previous
+// one. Restore replaces the slice and reloads.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BACKUP_FILE = 'expressions-plus-backup.json';
+const BACKUP_FILE_PREV = 'expressions-plus-backup-prev.json';
+/** Serialized settings at the time of the last successful backup */
+let lastBackupSnapshot = null;
+
+/** Uploads a text file into the user's files directory. */
+async function uploadUserFile(name, text) {
+    try {
+        const data = btoa(unescape(encodeURIComponent(text)));
+        const res = await fetch('/api/files/upload', {
+            method: 'POST',
+            headers: getRequestHeaders(),
+            body: JSON.stringify({ name, data }),
+        });
+        return res.ok;
+    } catch (err) {
+        console.warn('[expressions-plus] Backup upload failed:', err);
+        return false;
+    }
+}
+
+/** Fetches a text file from the user's files directory, or null. */
+async function fetchUserFile(name) {
+    try {
+        const res = await fetch(`/user/files/${name}`, { cache: 'no-cache' });
+        if (!res.ok) return null;
+        return await res.text();
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Writes a snapshot of the extension's settings to the server if anything
+ * changed since the last snapshot. Keeps one previous generation.
+ * @param {boolean} [force=false] - back up even without changes / when auto-backup is off
+ * @returns {Promise<boolean|null>} true on success, null when skipped
+ */
+async function writeServerBackup(force = false) {
+    const s = getSettings();
+    if (!s.autoBackup && !force) return null;
+
+    const snapshot = JSON.stringify(s);
+    if (!force && snapshot === lastBackupSnapshot) return null;
+
+    const payload = JSON.stringify({
+        format: 'expressions-plus-settings-backup',
+        version: 1,
+        savedAt: new Date().toISOString(),
+        settings: JSON.parse(snapshot),
+    });
+
+    // Shift the current snapshot into the "previous" slot first
+    const current = await fetchUserFile(BACKUP_FILE);
+    if (current) await uploadUserFile(BACKUP_FILE_PREV, current);
+
+    const ok = await uploadUserFile(BACKUP_FILE, payload);
+    if (ok) {
+        lastBackupSnapshot = snapshot;
+        console.debug('[expressions-plus] Settings snapshot backed up to user files.');
+    }
+    return ok;
+}
+
+const backupDebounced = debounce(() => writeServerBackup(false), 15000);
+
+/** Restores the extension's settings from the server snapshot and reloads. */
+async function restoreServerBackup() {
+    let text = await fetchUserFile(BACKUP_FILE);
+    let source = 'the latest snapshot';
+    if (!text) {
+        text = await fetchUserFile(BACKUP_FILE_PREV);
+        source = 'the previous snapshot';
+    }
+    if (!text) {
+        toastr.warning('No Expressions Plus backup found in your user files. Also check SillyTavern\'s own settings snapshots (data/<user>/backups/).', 'Expressions Plus');
+        return;
+    }
+
+    let payload;
+    try {
+        payload = JSON.parse(text);
+    } catch {
+        toastr.error('The backup file is corrupted.', 'Expressions Plus');
+        return;
+    }
+    if (payload?.format !== 'expressions-plus-settings-backup' || !payload.settings) {
+        toastr.error('Not a valid Expressions Plus backup.', 'Expressions Plus');
+        return;
+    }
+
+    const when = payload.savedAt ? new Date(payload.savedAt).toLocaleString() : 'an unknown time';
+    const cardCount = Object.keys(payload.settings.cards || {}).length;
+    const ok = await Popup.show.confirm(
+        'Restore Expressions Plus backup',
+        `Restore ${source}, saved <b>${escapeHtml(when)}</b> (${cardCount} card(s) registered)?<br><small>All current Expressions Plus settings — characters, groups, expression folders, tags, endpoint config — will be replaced by the backup. Image files on disk are unaffected. The page reloads afterwards.</small>`,
+    );
+    if (!ok) return;
+
+    extension_settings[MODULE_NAME] = payload.settings;
+    saveSettingsDebounced();
+    toastr.success('Backup restored. Reloading…', 'Expressions Plus');
+    setTimeout(() => location.reload(), 2500);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Import / Export
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1385,6 +1503,10 @@ async function renderTree() {
     for (const ch of card.characters) {
         $tree.append(buildCharacterBlock(cardKey, card, ch));
     }
+
+    // Every mutation re-renders, so this catches all changes (debounced,
+    // change-detected, and skipped entirely when auto-backup is off).
+    backupDebounced();
 }
 
 /**
@@ -2212,6 +2334,19 @@ async function addSettingsPanel() {
         s.stripCharName = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
+    $('#xp_auto_backup').prop('checked', s.autoBackup).on('input', function () {
+        s.autoBackup = !!$(this).prop('checked');
+        saveSettingsDebounced();
+    });
+    $('#xp_backup_now').on('click', async function () {
+        const $btn = $(this);
+        $btn.addClass('disabled');
+        const ok = await writeServerBackup(true);
+        $btn.removeClass('disabled');
+        ok ? toastr.success('Snapshot saved to your user files.', 'Expressions Plus')
+           : toastr.error('Backup failed. See console.', 'Expressions Plus');
+    });
+    $('#xp_backup_restore').on('click', restoreServerBackup);
 
     $('#xp_api_url').val(s.apiUrl).on('input', function () {
         s.apiUrl = String($(this).val()).trim();

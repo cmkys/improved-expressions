@@ -46,6 +46,21 @@ Copy this folder into:
 - **Collapsible characters**: characters start collapsed, showing a one-line summary (expression/group counts) — click the header to expand, click again to close. A freshly added character opens automatically. Header buttons keep working while collapsed, and you can still drop image files onto a collapsed character to upload.
 - **Groups (action sequences)**: create a group named after an action (e.g. `jumping`) and drag expressions onto it — the `jumping_` prefix is physically stripped from the filenames (`jumping_brace.png` → `brace.png` inside a `jumping/` folder on disk) and automatically added back in the label the AI sees (`jumping_brace`). Groups are collapsed by default; click the header to expand, pencil to rename (every member's prefix follows; renaming onto an existing group merges), X to dissolve (members return to the main list with the prefix restored in their filenames — nothing is deleted). **Auto-sort** (wand button on the character) moves every ungrouped expression matching a group's name or `name_` prefix into that group, longest prefix winning; expressions already inside groups are never touched. Drag chips between groups or onto the main area to move them — leaving a group always restores the full name into the filenames, and joining a different group prefixes with that group's name. Everything else (tags, variants, per-image controls, renames) works identically inside groups.
 
+## Recovering lost expressions & staying safe
+
+Your data lives in two places with different risk profiles:
+
+1. **Image files** — on disk under `data/<user>/characters/…`. SillyTavern updates don't touch these; they are almost never actually lost. If your expressions "disappeared", check that the files are still there first.
+2. **Registrations** (characters, groups, expression folders, tags) — stored inside SillyTavern's `settings.json`. This file is rewritten wholesale on every save, so a second device holding stale state (a phone tab left open, an old session after an update) can overwrite it and wipe the extension's data even though every image is still on disk.
+
+If registrations were lost:
+- **SillyTavern's own settings snapshots**: `data/<user>/backups/settings_<user>_<timestamp>.json` — rolling automatic backups. Restore one via the settings-snapshots manager in ST's user panel, or manually copy a good one over `settings.json` (with the server stopped).
+- **Expressions Plus snapshots**: this extension now auto-backs up its whole settings slice to `data/<user>/files/expressions-plus-backup.json` (plus a `-prev` generation) after every change. Use **Restore backup** in the panel to bring everything back in one click.
+- **Worst case, no backups**: your images are still in the character folders — re-add each character (same folder), hit Scan, and everything reappears; groups/tags need redoing, or use a card **Export** file if you made one.
+- Also check for a second user directory (`data/` may contain multiple user handles if accounts/profiles were involved) and, if you installed ST separately on the phone (e.g. Termux), that instance has its own independent `data/` folder.
+
+Prevention: keep **auto-snapshot** on (default), avoid having two devices' tabs open and changing settings at the same time, and export cards you care about occasionally — the export embeds the images too.
+
 ## Notes
 
 - **Renaming an expression** re-uploads its images under the new name and deletes the old files (SillyTavern has no rename API), so it physically renames the files on disk.

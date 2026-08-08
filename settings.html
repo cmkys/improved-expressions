@@ -71,6 +71,25 @@
                 <textarea id="xp_prompt" class="text_pole textarea_compact autoSetHeight" rows="4"></textarea>
             </div>
 
+            <div class="xp_section">
+                <div class="xp_section_title">Safety backups</div>
+                <small>Your characters, groups, expression folders, and tags are registrations stored in SillyTavern's <tt>settings.json</tt> — which can get clobbered when two devices (e.g. PC + phone) save at once, or across updates. Expressions Plus keeps its own snapshot (latest + previous) in <tt>data/&lt;user&gt;/files/</tt>, separate from settings.json. Your image files on disk are never at risk from this — Scan always finds them.</small>
+                <label class="checkbox_label m-t-1" for="xp_auto_backup">
+                    <input id="xp_auto_backup" type="checkbox">
+                    <span>Automatically snapshot after changes</span>
+                </label>
+                <div class="flex-container m-t-1">
+                    <div id="xp_backup_now" class="menu_button" title="Save a snapshot right now">
+                        <i class="fa-solid fa-floppy-disk"></i>
+                        <span>Back up now</span>
+                    </div>
+                    <div id="xp_backup_restore" class="menu_button" title="Restore the last snapshot (replaces current Expressions Plus settings and reloads)">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                        <span>Restore backup</span>
+                    </div>
+                </div>
+            </div>
+
             <hr>
 
             <div class="xp_section">
